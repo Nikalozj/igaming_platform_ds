@@ -1,17 +1,22 @@
 from __future__ import annotations
 
-import json
 import os
 from contextlib import asynccontextmanager
 from typing import Optional, Literal
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from confluent_kafka import Producer
 
 
-KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
-KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "casino.roulette.events.v1")
+# Load .env file
+load_dotenv()
+
+
+# Kafka settings from .env
+KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS")
+KAFKA_TOPIC = os.getenv("KAFKA_TOPIC")
 
 producer: Optional[Producer] = None
 
@@ -40,10 +45,6 @@ class RouletteEvent(BaseModel):
 def delivery_report(err, msg) -> None:
     if err is not None:
         print(f"[KAFKA ERROR] topic={msg.topic()} key={msg.key()} error={err}")
-    else:
-        # optional success log
-        # print(f"[KAFKA OK] topic={msg.topic()} partition={msg.partition()} offset={msg.offset()}")
-        pass
 
 
 @asynccontextmanager
@@ -54,7 +55,6 @@ async def lifespan(app: FastAPI):
         {
             "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
             "client.id": "roulette-events-api",
-            # reliability-oriented defaults
             "acks": "all",
             "enable.idempotence": True,
             "retries": 5,
@@ -69,7 +69,6 @@ async def lifespan(app: FastAPI):
     yield
 
     if producer is not None:
-        # deliver queued/in-flight messages before shutdown
         producer.flush(10)
         print("Kafka producer flushed and closed")
 
@@ -95,12 +94,11 @@ def ingest_event(event: RouletteEvent):
     global producer
 
     if producer is None:
-        raise HTTPException(status_code=500, detail="Kafka producer is not initialized")
+        raise HTTPException(status_code=500, detail="Kafka producer not initialized")
 
     try:
         payload = event.model_dump_json()
 
-        # use event_id as key so duplicates for the same event stay keyed consistently
         producer.produce(
             topic=KAFKA_TOPIC,
             key=event.event_id,
@@ -108,17 +106,16 @@ def ingest_event(event: RouletteEvent):
             on_delivery=delivery_report,
         )
 
-        # serves delivery callbacks and internal queue processing
         producer.poll(0)
 
         return {
             "status": "accepted",
-            "topic": KAFKA_TOPIC,
             "event_id": event.event_id,
+            "topic": KAFKA_TOPIC,
         }
 
     except BufferError as e:
-        raise HTTPException(status_code=503, detail=f"Kafka queue is full: {e}")
+        raise HTTPException(status_code=503, detail=f"Kafka queue full: {e}")
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to publish to Kafka: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
