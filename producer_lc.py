@@ -5,8 +5,7 @@ from datetime import datetime, timezone
 
 import requests
 
-
-API_URL = "http://127.0.0.1:8000/events"
+API_URL = "http://127.0.0.1:8001/events"
 
 TARGET_EVENTS_PER_SEC = 100
 DUPLICATE_PROBABILITY = 0.01  # 1% duplicates
