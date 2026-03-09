@@ -10,36 +10,30 @@ from pydantic import BaseModel, Field
 from confluent_kafka import Producer
 
 
-# Load .env file
 load_dotenv()
 
-
-# Kafka settings from .env
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS")
-KAFKA_TOPIC = os.getenv("KAFKA_TOPIC")
+KAFKA_TOPIC = "slots_bets"
 
 producer: Optional[Producer] = None
 
 
-class RouletteEvent(BaseModel):
-    event_id: str
-    event_name: str
-    event_ts: str
-
-    user_id: str
-    session_id: str
-
-    table_id: str
-    round_id: str
+class SlotsBetEvent(BaseModel):
     bet_id: str
+    user_id: int
+    game_id: int
+    provider_id: int
 
-    bet_type: Literal["RED", "BLACK", "ODD", "EVEN", "STRAIGHT"]
-    selection: Optional[int] = Field(default=None, ge=0, le=36)
-    stake: float
+    stake_amount: float = Field(gt=0)
+    win_amount: float = Field(ge=0)
 
     currency: str
-    country: str
-    device: Literal["MOBILE", "DESKTOP"]
+    bet_status: Literal["settled", "cancelled"]
+
+    device_type: Literal["mobile", "desktop", "tablet"]
+    country_code: str = Field(min_length=2, max_length=2)
+
+    event_time: str
 
 
 def delivery_report(err, msg) -> None:
@@ -54,7 +48,7 @@ async def lifespan(app: FastAPI):
     producer = Producer(
         {
             "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
-            "client.id": "roulette-events-api",
+            "client.id": "slots-bets-api",
             "acks": "all",
             "enable.idempotence": True,
             "retries": 5,
@@ -74,7 +68,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Roulette Events API",
+    title="Slots Bets API",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -89,8 +83,8 @@ def health():
     }
 
 
-@app.post("/events")
-def ingest_event(event: RouletteEvent):
+@app.post("/slots-bets")
+def ingest_slots_bet(event: SlotsBetEvent):
     global producer
 
     if producer is None:
@@ -101,7 +95,7 @@ def ingest_event(event: RouletteEvent):
 
         producer.produce(
             topic=KAFKA_TOPIC,
-            key=event.event_id,
+            key=event.bet_id,
             value=payload.encode("utf-8"),
             on_delivery=delivery_report,
         )
@@ -110,7 +104,7 @@ def ingest_event(event: RouletteEvent):
 
         return {
             "status": "accepted",
-            "event_id": event.event_id,
+            "bet_id": event.bet_id,
             "topic": KAFKA_TOPIC,
         }
 
