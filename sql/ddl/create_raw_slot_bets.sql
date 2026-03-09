@@ -1,0 +1,19 @@
+CREATE TABLE IF NOT EXISTS raw_slots_bets (
+    bet_id TEXT PRIMARY KEY,
+
+    user_id INT NOT NULL,
+    game_id INT NOT NULL,
+    provider_id INT NOT NULL,
+
+    stake_amount NUMERIC(12,2) NOT NULL,
+    win_amount NUMERIC(12,2) NOT NULL,
+
+    currency TEXT NOT NULL,
+    bet_status TEXT NOT NULL,
+
+    device_type TEXT,
+    country_code TEXT,
+
+    event_time TIMESTAMP NOT NULL,
+    inserted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
