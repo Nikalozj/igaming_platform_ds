@@ -53,9 +53,9 @@ dist/
 Thumbs.db
 
 # ==========================
-# Data files (optional for data projects)
+# Data files (optional for runtime projects)
 # ==========================
-data/
+runtime/
 datasets/
 *.csv
 *.parquet
