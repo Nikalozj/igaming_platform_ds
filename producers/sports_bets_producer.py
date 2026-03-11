@@ -7,8 +7,9 @@ import time
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
-from pathlib import Path
 
+import psycopg2
+from psycopg2.extras import Json
 from confluent_kafka import Producer
 from dotenv import load_dotenv
 
@@ -18,7 +19,12 @@ load_dotenv()
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS")
 KAFKA_TOPIC = os.getenv("KAFKA_TOPIC_SPORTS_BETS")
 
-BET_REGISTRY_FILE = Path("../runtime/sports_bets_registry.jsonl")
+DB_HOST = os.getenv("POSTGRES_HOST")
+DB_PORT = os.getenv("POSTGRES_PORT")
+DB_NAME = os.getenv("POSTGRES_DB")
+DB_USER = os.getenv("POSTGRES_USER")
+DB_PASSWORD = os.getenv("POSTGRES_PASSWORD")
+
 
 producer = Producer({
     "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
@@ -46,6 +52,16 @@ DEVICE_WEIGHTS = [70, 27, 3]
 
 BET_STATUSES = ["open", "cancelled", "error"]
 BET_STATUS_WEIGHTS = [99.2, 0.5, 0.3]
+
+
+def get_db_connection():
+    return psycopg2.connect(
+        host=DB_HOST,
+        port=DB_PORT,
+        dbname=DB_NAME,
+        user=DB_USER,
+        password=DB_PASSWORD
+    )
 
 
 def q2(value: Decimal) -> Decimal:
@@ -87,9 +103,17 @@ def generate_ticket_id() -> str:
     return f"TKT_{uuid.uuid4().hex[:12].upper()}"
 
 
-def save_bet_for_settlement(event: dict) -> None:
-    with BET_REGISTRY_FILE.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(event) + "\n")
+def save_bet_for_settlement(conn, event: dict) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO sports_bets_registry (bet_id, payload, status)
+            VALUES (%s, %s, 'open')
+            ON CONFLICT (bet_id) DO NOTHING
+            """,
+            (event["bet_id"], Json(event))
+        )
+    conn.commit()
 
 
 def generate_sports_bet() -> dict:
@@ -97,7 +121,7 @@ def generate_sports_bet() -> dict:
     odds = generate_odds()
     bet_status = weighted_choice(BET_STATUSES, BET_STATUS_WEIGHTS)
 
-    event = {
+    return {
         "bet_id": str(uuid.uuid4()),
         "user_id": random.randint(1, 1_000_000),
         "ticket_id": generate_ticket_id(),
@@ -114,8 +138,6 @@ def generate_sports_bet() -> dict:
         "event_time": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     }
 
-    return event
-
 
 def delivery_report(err, msg) -> None:
     if err is not None:
@@ -128,6 +150,7 @@ def main() -> None:
     print(f"Producing to topic: {KAFKA_TOPIC}")
     print(f"Bootstrap servers: {KAFKA_BOOTSTRAP_SERVERS}")
 
+    conn = get_db_connection()
     counter = 0
 
     try:
@@ -141,10 +164,10 @@ def main() -> None:
                 callback=delivery_report
             )
 
-            producer.poll(1)
+            producer.poll(0)
 
             if event["bet_status"] == "open":
-                save_bet_for_settlement(event)
+                save_bet_for_settlement(conn, event)
 
             print(event)
 
@@ -159,6 +182,7 @@ def main() -> None:
 
     finally:
         producer.flush()
+        conn.close()
 
 
 if __name__ == "__main__":
