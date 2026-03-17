@@ -215,16 +215,6 @@ def delivery_report(err, msg) -> None:
     else:
         print(f"Delivered to {msg.topic()} [{msg.partition()}] offset {msg.offset()}")
 
-import json
-from pathlib import Path
-
-BET_REGISTRY_FILE = Path("../runtime/sports_bets_registry.jsonl")
-
-def save_bet_for_settlement(event: dict) -> None:
-    with BET_REGISTRY_FILE.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(event) + "\n")
-
-
 def main() -> None:
     print(f"Producing to topic: {KAFKA_TOPIC}")
     print(f"Bootstrap servers: {KAFKA_BOOTSTRAP_SERVERS}")
